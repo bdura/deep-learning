@@ -64,7 +64,29 @@ class RNN(nn.Module):  # Implement a stacked vanilla RNN with Tanh nonlinearitie
                       Do not apply dropout on recurrent connections.
         """
         super(RNN, self).__init__()
+        self.seq_len = seq_len
+        self.batch_size = batch_size
+        self.hidden_size = hidden_size
+        self.embedding = nn.Embedding(num_embeddings=vocab_size, embedding_dim=emb_size)
 
+        self.in_hidden = nn.Sequential(
+            nn.Linear(emb_size + hidden_size, hidden_size),
+            nn.Tanh(),
+            nn.Linear(hidden_size, hidden_size),
+            nn.Tanh(),
+            nn.Dropout(1 - dp_keep_prob)
+        )
+        hidden_block = nn.Sequential(
+            nn.Linear(hidden_size, hidden_size),
+            nn.Tanh(),
+            nn.Linear(hidden_size, hidden_size),
+            nn.Tanh(),
+            nn.Dropout(1 - dp_keep_prob)
+        )
+
+        self.hidden_stack = clones(hidden_block, num_layers - 1)
+
+        self.out = nn.Linear(hidden_size, vocab_size)
         # TODO ========================
         # Initialization of the parameters of the recurrent and fc layers.
         # Your implementation should support any number of stacked hidden layers
@@ -81,12 +103,15 @@ class RNN(nn.Module):  # Implement a stacked vanilla RNN with Tanh nonlinearitie
         # provided clones function.
 
     def init_weights(self):
-        pass
         # TODO ========================
         # Initialize the embedding and output weights uniformly in the range [-0.1, 0.1]
         # and output biases to 0 (in place). The embeddings should not use a bias vector.
         # Initialize all other (i.e. recurrent and linear) weights AND biases uniformly
         # in the range [-k, k] where k is the square root of 1/hidden_size
+
+        torch.nn.init.uniform(self.embedding, -0.1, 0.1)
+        torch.nn.init.uniform(self.out, -0.1, 0.1)
+        self.out.bias.data.fill_(0.)
 
     def init_hidden(self):
         # TODO ========================
@@ -94,7 +119,8 @@ class RNN(nn.Module):  # Implement a stacked vanilla RNN with Tanh nonlinearitie
         """
         This is used for the first mini-batch in an epoch, only.
         """
-        return  # a parameter tensor of shape (self.num_layers, self.batch_size, self.hidden_size)
+        return torch.zeros(size=(self.num_layers, self.batch_size,
+                                 self.hidden_size))  # a parameter tensor of shape (self.num_layers, self.batch_size, self.hidden_size)
 
     def forward(self, inputs, hidden):
         # TODO ========================
