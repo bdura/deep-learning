@@ -10,6 +10,9 @@ import math
 import copy
 import time
 
+from itertools import chain
+
+
 import matplotlib.pyplot as plt
 
 
@@ -80,13 +83,45 @@ class RNN(nn.Module):  # Implement a stacked vanilla RNN with Tanh nonlinearitie
         # and compute their gradients automatically. You're not obligated to use the
         # provided clones function.
 
+        self.emb_size = emb_size
+        self.hidden_size = hidden_size
+        self.seq_len = seq_len
+        self.batch_size = batch_size
+        self.vocab_size = vocab_size
+        self.num_layers = num_layers
+        self.dp_keep_prob = dp_keep_prob
+
+        self.activation = nn.Tanh()
+
+        self.embedding = nn.Embedding(vocab_size, emb_size)
+
+        self.dropout = nn.Dropout(1 - dp_keep_prob)
+
+        self.input_layer = nn.Linear(emb_size, hidden_size)
+
+        hidden_layer = nn.Linear(2 * hidden_size, hidden_size)
+
+        self.recurrent_layers = clones(hidden_layer, num_layers)
+
+        self.output_layer = nn.Linear(hidden_size, vocab_size)
+
     def init_weights(self):
-        pass
+
         # TODO ========================
         # Initialize the embedding and output weights uniformly in the range [-0.1, 0.1]
         # and output biases to 0 (in place). The embeddings should not use a bias vector.
         # Initialize all other (i.e. recurrent and linear) weights AND biases uniformly
         # in the range [-k, k] where k is the square root of 1/hidden_size
+
+        self.input_layer.bias = torch.zeros_like(self.input_layer.bias)
+        self.input_layer.weight = torch.rand_like(self.input_layer.weight) * .2 - .1
+
+        for layer in self.recurrent_layers:
+            layer.bias = torch.zeros_like(layer.bias)
+            layer.weights = torch.rand_like(layer.weights) * .2 - .1
+
+        self.output_layer.bias = torch.zeros_like(self.output_layer.bias)
+        self.output_layer.weight = torch.rand_like(self.output_layer.weight) * .2 - .1
 
     def init_hidden(self):
         # TODO ========================
@@ -94,7 +129,10 @@ class RNN(nn.Module):  # Implement a stacked vanilla RNN with Tanh nonlinearitie
         """
         This is used for the first mini-batch in an epoch, only.
         """
-        return  # a parameter tensor of shape (self.num_layers, self.batch_size, self.hidden_size)
+
+        tensor = torch.zeros((self.num_layers, self.batch_size, self.hidden_size))
+
+        return tensor  # a parameter tensor of shape (self.num_layers, self.batch_size, self.hidden_size)
 
     def forward(self, inputs, hidden):
         # TODO ========================
@@ -132,7 +170,27 @@ class RNN(nn.Module):  # Implement a stacked vanilla RNN with Tanh nonlinearitie
                   if you are curious.
                         shape: (num_layers, batch_size, hidden_size)
         """
-        return logits.view(self.seq_len, self.batch_size, self.vocab_size), hidden
+
+        logits = torch.zeros((self.seq_len, self.batch_size, self.vocab_size))
+
+        for i, batch_token in enumerate(inputs):
+
+            batch_embedding = self.embedding(batch_token)
+
+            x = self.input_layer(batch_embedding)
+            x = self.activation(x)
+
+            for i, layer in enumerate(self.recurrent_layers):
+
+                x = layer(torch.cat((self.dropout(x), hidden[i]), dim=1))
+                x = self.activation(x)
+                hidden[i] = x
+
+            x = self.dropout(x)
+
+            logits[i] = self.output_layer(x).view((self.batch_size, self.vocab_size))
+
+        return logits, hidden
 
     def generate(self, input, hidden, generated_seq_len):
         # TODO ========================
@@ -160,7 +218,31 @@ class RNN(nn.Module):  # Implement a stacked vanilla RNN with Tanh nonlinearitie
                         shape: (generated_seq_len, batch_size)
         """
 
-        return samples
+        feed = self.embedding(input)
+
+        sentence = [feed]
+
+        for _ in range(generated_seq_len):
+
+            batch_embedding = self.embedding(feed)
+
+            x = self.input_layer(batch_embedding)
+            x = self.activation(x)
+
+            for i, layer in enumerate(self.recurrent_layers):
+                x = layer(torch.cat((self.dropout(x), hidden[i]), dim=1))
+                x = self.activation(x)
+                hidden[i] = x
+
+            x = self.dropout(x)
+
+            logits = self.output_layer(x)
+
+            feed = np.random.choice(self.vocab_size, p=F.softmax(logits))
+
+            sentence.append(feed)
+
+        return sentence
 
 
 # Problem 2
@@ -175,22 +257,130 @@ class GRU(nn.Module):  # Implement a stacked GRU RNN
 
         # TODO ========================
 
+
+        self.emb_size = emb_size
+        self.hidden_size = hidden_size
+        self.seq_lenght = seq_len
+        self.batch_size = batch_size
+        self.vocab_size = vocab_size
+        self.num_layers = num_layers
+        self.dp_keep_prob = dp_keep_prob
+
+        self.activation = nn.Tanh()
+
+        self.embedding = nn.Embedding(vocab_size, emb_size)
+
+        self.dropout = nn.Dropout(1 - dp_keep_prob)
+
+        self.input_layer = nn.Linear(emb_size, hidden_size)
+
+        hidden = nn.Linear(2 * hidden_size, hidden_size)
+        forget = nn.Linear(2 * hidden_size, hidden_size)
+        reset = nn.Linear(2 * hidden_size, hidden_size)
+
+        self.recurrent_hidden = clones(hidden, num_layers)
+        self.recurrent_reset = clones(reset, num_layers)
+        self.recurrent_forget = clones(forget, num_layers)
+
+        self.output_layer = nn.Linear(hidden_size, vocab_size)
+
     def init_weights_uniform(self):
 
         # TODO ========================
-        return
+
+        self.input_layer.bias = torch.zeros_like(self.input_layer.bias)
+        self.input_layer.weight = torch.rand_like(self.input_layer.weight) * .2 - .1
+
+        layers = chain(
+            self.recurrent_hidden,
+            self.recurrent_hidden_tilde,
+            self.recurrent_forget,
+            self.recurrent_reset
+        )
+
+        for layer in layers:
+            layer.bias = torch.zeros_like(layer.bias)
+            layer.weights = torch.rand_like(layer.weights) * .2 - .1
+
+        self.output_layer.bias = torch.zeros_like(self.output_layer.bias)
+        self.output_layer.weight = torch.rand_like(self.output_layer.weight) * .2 - .1
 
     def init_hidden(self):
         # TODO ========================
-        return  # a parameter tensor of shape (self.num_layers, self.batch_size, self.hidden_size)
+
+        tensor = torch.zeros((self.num_layers, self.batch_size, self.hidden_size))
+
+        return tensor  # a parameter tensor of shape (self.num_layers, self.batch_size, self.hidden_size)
 
     def forward(self, inputs, hidden):
         # TODO ========================
+
+        for batch_token in inputs:
+
+            batch_embedding = self.embedding(batch_token)
+
+            x = self.input_layer(batch_embedding)
+            x = self.dropout(x)
+            x = self.activation(x)
+
+            layers = zip(
+                self.recurrent_hidden,
+                self.recurrent_forget,
+                self.recurrent_reset,
+            )
+
+            for i, (recurrent, forget, reset) in enumerate(layers):
+
+                z = F.sigmoid(forget(torch.cat((x, hidden[i]), dim=1)))
+                r = F.sigmoid(reset(torch.cat((x, hidden[i]), dim=1)))
+                h = F.tanh(recurrent(torch.cat((x, hidden[i] * r), dim=1)))
+
+                x = (1 - z) * hidden[i] + z * h
+
+                x = self.dropout(x)
+
+                hidden[i] = x
+
+            logits = self.output_layer(x)
+
         return logits.view(self.seq_len, self.batch_size, self.vocab_size), hidden
 
     def generate(self, input, hidden, generated_seq_len):
         # TODO ========================
-        return samples
+
+        feed = self.embedding(input)
+
+        sentence = [feed]
+
+        for _ in range(generated_seq_len):
+
+            batch_embedding = self.embedding(batch_token)
+
+            x = self.input_layer(batch_embedding)
+            x = self.activation(x)
+
+            layers = zip(
+                self.recurrent_hidden,
+                self.recurrent_forget,
+                self.recurrent_reset,
+            )
+
+            for i, (recurrent, forget, reset) in enumerate(layers):
+                z = F.sigmoid(forget(torch.cat((x, hidden[i]), dim=1)))
+                r = F.sigmoid(reset(torch.cat((x, hidden[i]), dim=1)))
+                h = F.sigmoid(recurrent(torch.cat((x, hidden[i] * r), dim=1)))
+
+                x = (1 - z) * hidden[i] + z * h
+
+                hidden[i] = x
+
+            logits = self.output_layer(x)
+
+            feed = np.random.choice(self.vocab_size, p=F.softmax(logits))
+
+            sentence.append(feed)
+
+        return sentence
 
 
 # Problem 3
@@ -277,6 +467,8 @@ class MultiHeadedAttention(nn.Module):
         # and nn.Dropout
         # ETA: you can also use softmax
         # ETA: you can use the "clones" function we provide.
+
+        self.dropout = nn.Dropout(dropout)
 
     def forward(self, query, key, value, mask=None):
         # TODO: implement the masked multi-head attention.
