@@ -52,6 +52,24 @@ def clones(module, N):
     return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
 
 
+def masked_softmax(x, mask, offset=1e9):
+    """
+    A helper function to perform the masked softmax
+
+    Args:
+        x (torch.Tensor): The tensor on which the softmax operation will be performed.
+        mask: The mask used.
+        offset (float): A large value used for numerical stability.
+    """
+
+    if mask is not None:
+        x_tilde = x * mask - offset * (1 - mask)
+    else:
+        x_tilde = x
+
+    return nn.functional.softmax(x_tilde)
+
+
 # Problem 1
 class RNN(nn.Module):  # Implement a stacked vanilla RNN with Tanh nonlinearities.
     def __init__(self, emb_size, hidden_size, seq_len, batch_size, vocab_size, num_layers, dp_keep_prob):
@@ -116,9 +134,12 @@ class RNN(nn.Module):  # Implement a stacked vanilla RNN with Tanh nonlinearitie
         self.input_layer.bias = torch.zeros_like(self.input_layer.bias)
         self.input_layer.weight = torch.rand_like(self.input_layer.weight) * .2 - .1
 
+        k = np.sqrt(1 / self.hidden_size)
+
         for layer in self.recurrent_layers:
-            layer.bias = torch.zeros_like(layer.bias)
-            layer.weights = torch.rand_like(layer.weights) * .2 - .1
+
+            layer.bias = torch.rand_like(layer.bias) * 2 * k - k
+            layer.weight = torch.rand_like(layer.weight) * 2 * k - k
 
         self.output_layer.bias = torch.zeros_like(self.output_layer.bias)
         self.output_layer.weight = torch.rand_like(self.output_layer.weight) * .2 - .1
@@ -180,11 +201,11 @@ class RNN(nn.Module):  # Implement a stacked vanilla RNN with Tanh nonlinearitie
             x = self.input_layer(batch_embedding)
             x = self.activation(x)
 
-            for i, layer in enumerate(self.recurrent_layers):
+            for j, layer in enumerate(self.recurrent_layers):
 
-                x = layer(torch.cat((self.dropout(x), hidden[i]), dim=1))
+                x = layer(torch.cat((self.dropout(x), hidden[j]), dim=1))
                 x = self.activation(x)
-                hidden[i] = x
+                hidden[j] = x
 
             x = self.dropout(x)
 
@@ -257,7 +278,6 @@ class GRU(nn.Module):  # Implement a stacked GRU RNN
 
         # TODO ========================
 
-
         self.emb_size = emb_size
         self.hidden_size = hidden_size
         self.seq_lenght = seq_len
@@ -298,9 +318,12 @@ class GRU(nn.Module):  # Implement a stacked GRU RNN
             self.recurrent_reset
         )
 
+        k = np.sqrt(1 / self.hidden_size)
+
         for layer in layers:
-            layer.bias = torch.zeros_like(layer.bias)
-            layer.weights = torch.rand_like(layer.weights) * .2 - .1
+
+            layer.bias = torch.rand_like(layer.bias) * 2 * k - k
+            layer.weight = torch.rand_like(layer.weight) * 2 * k - k
 
         self.output_layer.bias = torch.zeros_like(self.output_layer.bias)
         self.output_layer.weight = torch.rand_like(self.output_layer.weight) * .2 - .1
@@ -354,7 +377,7 @@ class GRU(nn.Module):  # Implement a stacked GRU RNN
 
         for _ in range(generated_seq_len):
 
-            batch_embedding = self.embedding(batch_token)
+            batch_embedding = self.embedding(feed)
 
             x = self.input_layer(batch_embedding)
             x = self.activation(x)
@@ -468,7 +491,37 @@ class MultiHeadedAttention(nn.Module):
         # ETA: you can also use softmax
         # ETA: you can use the "clones" function we provide.
 
+        self.n_heads = n_heads
+
         self.dropout = nn.Dropout(dropout)
+
+        attention_query = nn.Linear(self.d_k, self.d_k)
+        attention_key = nn.Linear(self.d_k, self.d_k)
+        attention_value = nn.Linear(self.d_k, self.d_k)
+
+        self.attention_queries = clones(attention_query, n_heads)
+        self.attention_keys = clones(attention_key, n_heads)
+        self.attention_values = clones(attention_value, n_heads)
+
+        self.output_layer = nn.Linear(self.d_k, self.n_units)
+
+        self.initialise_layers()
+
+    def initialise_layers(self):
+        k = np.sqrt(1 / self.n_units)
+
+        layers = chain(
+            self.attention_values,
+            self.attention_keys,
+            self.attention_queries,
+        )
+
+        for layer in layers:
+            layer.bias = nn.Parameter(torch.rand_like(layer.bias) * 2 * k - k)
+            layer.weight = nn.Parameter(torch.rand_like(layer.weight) * 2 * k - k)
+
+        self.output_layer.bias = nn.Parameter(torch.rand_like(self.output_layer.bias) * 2 * k - k)
+        self.output_layer.weight = nn.Parameter(torch.rand_like(self.output_layer.weight) * 2 * k - k)
 
     def forward(self, query, key, value, mask=None):
         # TODO: implement the masked multi-head attention.
@@ -479,7 +532,33 @@ class MultiHeadedAttention(nn.Module):
         # generating the "attention values" (i.e. A_i in the .tex)
         # Also apply dropout to the attention values.
 
-        return  # size: (batch_size, seq_len, self.n_units)
+        # query_, key_, value_ = query.permute(0, 1), key.permute(0, 1), value.permute(0, 1)
+        #
+        # batch_size = query.size(0)
+        # seq_len = query.size(1)
+        #
+        # if mask is not None:
+        #     mask_ = mask.permute(0, 1)
+        # else:
+        #     mask_ = [None] * seq_len
+        #
+        # for i, (q, k, v, m) in enumerate(zip(query_, key_, value_, mask_)):
+        #
+        #     attentions = torch.zeros((self.n_heads, batch_size, self.d_k))
+        #
+        #     for j, (layer_query, layer_key) in enumerate(zip(self.attention_queries, self.attention_keys)):
+        #
+        #         pre_soft = layer_query(q) @ layer_key(k).t()
+        #         attentions[j] = masked_softmax(pre_soft / np.sqrt(self.d_k), mask)
+        #
+        #     hidden = torch.zeros((self.n_heads, batch_size, self.d_k))
+        #
+        #     for j, layer_value in enumerate(self.attention_values):
+        #         hidden[j] = self.dropout(attentions[j]) @ layer_value(value)
+        #
+        #     attention = self.output_layer(hidden)
+        #
+        # return attention  # size: (batch_size, seq_len, self.n_units)
 
 
 # ----------------------------------------------------------------------------------
