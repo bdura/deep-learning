@@ -7,3 +7,9 @@ data/
 
 .autoenv.zsh
 .autoenv_leave.zsh
+/template/
+/run.sh
+/config.json
+/default_config.json
+/run.pbs
+/run_experiment.sh

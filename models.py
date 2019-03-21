@@ -281,7 +281,7 @@ class GRU(nn.Module):  # Implement a stacked GRU RNN
 
         self.emb_size = emb_size
         self.hidden_size = hidden_size
-        self.seq_lenght = seq_len
+        self.seq_len = seq_len
         self.batch_size = batch_size
         self.vocab_size = vocab_size
         self.num_layers = num_layers
