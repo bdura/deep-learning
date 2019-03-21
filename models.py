@@ -52,7 +52,7 @@ def clones(module, N):
     return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
 
 
-def masked_softmax(x, mask, offset=1e9):
+def masked_softmax(x, mask, offset=1e9, dim=None):
     """
     A helper function to perform the masked softmax
 
@@ -63,11 +63,12 @@ def masked_softmax(x, mask, offset=1e9):
     """
 
     if mask is not None:
+        mask = mask.type(torch.FloatTensor)
         x_tilde = x * mask - offset * (1 - mask)
     else:
         x_tilde = x
 
-    return nn.functional.softmax(x_tilde)
+    return nn.functional.softmax(x_tilde, dim=dim)
 
 
 # Problem 1
@@ -131,18 +132,18 @@ class RNN(nn.Module):  # Implement a stacked vanilla RNN with Tanh nonlinearitie
         # Initialize all other (i.e. recurrent and linear) weights AND biases uniformly
         # in the range [-k, k] where k is the square root of 1/hidden_size
 
-        self.input_layer.bias = torch.zeros_like(self.input_layer.bias)
-        self.input_layer.weight = torch.rand_like(self.input_layer.weight) * .2 - .1
+        nn.init.zeros_(self.input_layer.bias)
+        nn.init.uniform_(self.input_layer.weight, -.1, .1)
 
         k = np.sqrt(1 / self.hidden_size)
 
         for layer in self.recurrent_layers:
 
-            layer.bias = torch.rand_like(layer.bias) * 2 * k - k
-            layer.weight = torch.rand_like(layer.weight) * 2 * k - k
+            nn.init.uniform_(layer.bias, -k, k)
+            nn.init.uniform_(layer.weight, -k, k)
 
-        self.output_layer.bias = torch.zeros_like(self.output_layer.bias)
-        self.output_layer.weight = torch.rand_like(self.output_layer.weight) * .2 - .1
+        nn.init.zeros_(self.output_layer.bias)
+        nn.init.uniform_(self.output_layer.weight, -.1, .1)
 
     def init_hidden(self):
         # TODO ========================
@@ -308,8 +309,8 @@ class GRU(nn.Module):  # Implement a stacked GRU RNN
 
         # TODO ========================
 
-        self.input_layer.bias = torch.zeros_like(self.input_layer.bias)
-        self.input_layer.weight = torch.rand_like(self.input_layer.weight) * .2 - .1
+        nn.init.zeros_(self.input_layer.bias)
+        nn.init.uniform_(self.input_layer.weight, -.1, .1)
 
         layers = chain(
             self.recurrent_hidden,
@@ -321,12 +322,11 @@ class GRU(nn.Module):  # Implement a stacked GRU RNN
         k = np.sqrt(1 / self.hidden_size)
 
         for layer in layers:
+            nn.init.uniform_(layer.bias, -k, k)
+            nn.init.uniform_(layer.weight, -k, k)
 
-            layer.bias = torch.rand_like(layer.bias) * 2 * k - k
-            layer.weight = torch.rand_like(layer.weight) * 2 * k - k
-
-        self.output_layer.bias = torch.zeros_like(self.output_layer.bias)
-        self.output_layer.weight = torch.rand_like(self.output_layer.weight) * .2 - .1
+        nn.init.zeros_(self.output_layer.bias)
+        nn.init.uniform_(self.output_layer.weight, -.1, .1)
 
     def init_hidden(self):
         # TODO ========================
@@ -338,7 +338,9 @@ class GRU(nn.Module):  # Implement a stacked GRU RNN
     def forward(self, inputs, hidden):
         # TODO ========================
 
-        for batch_token in inputs:
+        logits = torch.zeros((self.seq_len, self.batch_size, self.vocab_size))
+
+        for i, batch_token in enumerate(inputs):
 
             batch_embedding = self.embedding(batch_token)
 
@@ -352,19 +354,19 @@ class GRU(nn.Module):  # Implement a stacked GRU RNN
                 self.recurrent_reset,
             )
 
-            for i, (recurrent, forget, reset) in enumerate(layers):
+            for j, (recurrent, forget, reset) in enumerate(layers):
 
-                z = F.sigmoid(forget(torch.cat((x, hidden[i]), dim=1)))
-                r = F.sigmoid(reset(torch.cat((x, hidden[i]), dim=1)))
-                h = F.tanh(recurrent(torch.cat((x, hidden[i] * r), dim=1)))
+                z = F.sigmoid(forget(torch.cat((x, hidden[j]), dim=1)))
+                r = F.sigmoid(reset(torch.cat((x, hidden[j]), dim=1)))
+                h = F.tanh(recurrent(torch.cat((x, hidden[j] * r), dim=1)))
 
-                x = (1 - z) * hidden[i] + z * h
+                x = (1 - z) * hidden[j] + z * h
 
                 x = self.dropout(x)
 
-                hidden[i] = x
+                hidden[j] = x
 
-            logits = self.output_layer(x)
+            logits[i] = self.output_layer(x)
 
         return logits.view(self.seq_len, self.batch_size, self.vocab_size), hidden
 
@@ -495,15 +497,15 @@ class MultiHeadedAttention(nn.Module):
 
         self.dropout = nn.Dropout(dropout)
 
-        attention_query = nn.Linear(self.d_k, self.d_k)
-        attention_key = nn.Linear(self.d_k, self.d_k)
-        attention_value = nn.Linear(self.d_k, self.d_k)
+        attention_query = nn.Linear(self.n_units, self.d_k)
+        attention_key = nn.Linear(self.n_units, self.d_k)
+        attention_value = nn.Linear(self.n_units, self.d_k)
 
         self.attention_queries = clones(attention_query, n_heads)
         self.attention_keys = clones(attention_key, n_heads)
         self.attention_values = clones(attention_value, n_heads)
 
-        self.output_layer = nn.Linear(self.d_k, self.n_units)
+        self.output_layer = nn.Linear(self.d_k * self.n_heads, self.n_units)
 
         self.initialise_layers()
 
@@ -517,11 +519,11 @@ class MultiHeadedAttention(nn.Module):
         )
 
         for layer in layers:
-            layer.bias = nn.Parameter(torch.rand_like(layer.bias) * 2 * k - k)
-            layer.weight = nn.Parameter(torch.rand_like(layer.weight) * 2 * k - k)
+            nn.init.uniform_(layer.bias, -k, k)
+            nn.init.uniform_(layer.weight, -k, k)
 
-        self.output_layer.bias = nn.Parameter(torch.rand_like(self.output_layer.bias) * 2 * k - k)
-        self.output_layer.weight = nn.Parameter(torch.rand_like(self.output_layer.weight) * 2 * k - k)
+        nn.init.uniform_(self.output_layer.bias, -k, k)
+        nn.init.uniform_(self.output_layer.weight, -k, k)
 
     def forward(self, query, key, value, mask=None):
         # TODO: implement the masked multi-head attention.
@@ -532,33 +534,27 @@ class MultiHeadedAttention(nn.Module):
         # generating the "attention values" (i.e. A_i in the .tex)
         # Also apply dropout to the attention values.
 
-        # query_, key_, value_ = query.permute(0, 1), key.permute(0, 1), value.permute(0, 1)
-        #
-        # batch_size = query.size(0)
-        # seq_len = query.size(1)
-        #
-        # if mask is not None:
-        #     mask_ = mask.permute(0, 1)
-        # else:
-        #     mask_ = [None] * seq_len
-        #
-        # for i, (q, k, v, m) in enumerate(zip(query_, key_, value_, mask_)):
-        #
-        #     attentions = torch.zeros((self.n_heads, batch_size, self.d_k))
-        #
-        #     for j, (layer_query, layer_key) in enumerate(zip(self.attention_queries, self.attention_keys)):
-        #
-        #         pre_soft = layer_query(q) @ layer_key(k).t()
-        #         attentions[j] = masked_softmax(pre_soft / np.sqrt(self.d_k), mask)
-        #
-        #     hidden = torch.zeros((self.n_heads, batch_size, self.d_k))
-        #
-        #     for j, layer_value in enumerate(self.attention_values):
-        #         hidden[j] = self.dropout(attentions[j]) @ layer_value(value)
-        #
-        #     attention = self.output_layer(hidden)
-        #
-        # return attention  # size: (batch_size, seq_len, self.n_units)
+        batch_size, seq_len, _ = query.size()
+
+        attentions = torch.empty((self.n_heads, batch_size, seq_len, seq_len))
+
+        iterator = enumerate(zip(self.attention_queries, self.attention_keys))
+
+        for i, (layer_query, layer_key) in iterator:
+
+            pre_soft = layer_query(query) @ layer_key(key).permute(0, 2, 1)
+
+            attentions[i] = masked_softmax(pre_soft / np.sqrt(self.d_k), mask, dim=2)
+
+        # attentions = attentions.permute(1, 0, 2, 3)
+
+        hidden = []
+
+        for i, layer_value in enumerate(self.attention_values):
+
+            hidden.append(self.dropout(attentions[i]) @ layer_value(value))
+
+        return self.output_layer(torch.cat(tuple(hidden), dim=2))
 
 
 # ----------------------------------------------------------------------------------
