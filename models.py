@@ -152,7 +152,7 @@ class RNN(nn.Module):  # Implement a stacked vanilla RNN with Tanh nonlinearitie
         This is used for the first mini-batch in an epoch, only.
         """
 
-        tensor = torch.zeros((self.num_layers, self.batch_size, self.hidden_size))
+        tensor = nn.Parameter(torch.zeros((self.num_layers, self.batch_size, self.hidden_size)))
 
         return tensor  # a parameter tensor of shape (self.num_layers, self.batch_size, self.hidden_size)
 
@@ -193,7 +193,8 @@ class RNN(nn.Module):  # Implement a stacked vanilla RNN with Tanh nonlinearitie
                         shape: (num_layers, batch_size, hidden_size)
         """
 
-        logits = torch.zeros((self.seq_len, self.batch_size, self.vocab_size))
+        logits = []
+        hidden = list(hidden)
 
         for i, batch_token in enumerate(inputs):
 
@@ -210,9 +211,9 @@ class RNN(nn.Module):  # Implement a stacked vanilla RNN with Tanh nonlinearitie
 
             x = self.dropout(x)
 
-            logits[i] = self.output_layer(x).view((self.batch_size, self.vocab_size))
+            logits.append(self.output_layer(x).view((self.batch_size, self.vocab_size)))
 
-        return logits, hidden
+        return torch.stack(tuple(logits)), torch.stack(tuple(hidden))
 
     def generate(self, input, hidden, generated_seq_len):
         # TODO ========================
@@ -252,7 +253,8 @@ class RNN(nn.Module):  # Implement a stacked vanilla RNN with Tanh nonlinearitie
             x = self.activation(x)
 
             for i, layer in enumerate(self.recurrent_layers):
-                x = layer(torch.cat((self.dropout(x), hidden[i]), dim=1))
+                x = self.dropout(x)
+                x = layer(torch.cat((x, hidden[i]), dim=1))
                 x = self.activation(x)
                 hidden[i] = x
 
@@ -287,7 +289,8 @@ class GRU(nn.Module):  # Implement a stacked GRU RNN
         self.num_layers = num_layers
         self.dp_keep_prob = dp_keep_prob
 
-        self.activation = nn.Tanh()
+        self.tanh = nn.Tanh()
+        self.sigmoid = nn.Sigmoid()
 
         self.embedding = nn.Embedding(vocab_size, emb_size)
 
@@ -295,13 +298,13 @@ class GRU(nn.Module):  # Implement a stacked GRU RNN
 
         self.input_layer = nn.Linear(emb_size, hidden_size)
 
+        reset_gate = nn.Linear(2 * hidden_size, hidden_size)
+        forget_gate = nn.Linear(2 * hidden_size, hidden_size)
         hidden = nn.Linear(2 * hidden_size, hidden_size)
-        forget = nn.Linear(2 * hidden_size, hidden_size)
-        reset = nn.Linear(2 * hidden_size, hidden_size)
 
+        self.recurrent_reset = clones(reset_gate, num_layers)
+        self.recurrent_forget = clones(forget_gate, num_layers)
         self.recurrent_hidden = clones(hidden, num_layers)
-        self.recurrent_reset = clones(reset, num_layers)
-        self.recurrent_forget = clones(forget, num_layers)
 
         self.output_layer = nn.Linear(hidden_size, vocab_size)
 
@@ -312,14 +315,13 @@ class GRU(nn.Module):  # Implement a stacked GRU RNN
         nn.init.zeros_(self.input_layer.bias)
         nn.init.uniform_(self.input_layer.weight, -.1, .1)
 
-        layers = chain(
-            self.recurrent_hidden,
-            self.recurrent_hidden_tilde,
-            self.recurrent_forget,
-            self.recurrent_reset
-        )
-
         k = np.sqrt(1 / self.hidden_size)
+
+        layers = chain(
+            self.recurrent_forget,
+            self.recurrent_hidden,
+            self.recurrent_reset,
+        )
 
         for layer in layers:
             nn.init.uniform_(layer.bias, -k, k)
@@ -330,45 +332,53 @@ class GRU(nn.Module):  # Implement a stacked GRU RNN
 
     def init_hidden(self):
         # TODO ========================
+        # initialize the hidden states to zero
+        """
+        This is used for the first mini-batch in an epoch, only.
+        """
 
-        tensor = torch.zeros((self.num_layers, self.batch_size, self.hidden_size))
+        tensor = nn.Parameter(torch.zeros((self.num_layers, self.batch_size, self.hidden_size)))
 
         return tensor  # a parameter tensor of shape (self.num_layers, self.batch_size, self.hidden_size)
 
     def forward(self, inputs, hidden):
         # TODO ========================
 
-        logits = torch.zeros((self.seq_len, self.batch_size, self.vocab_size))
+        logits = []
+        hidden = list(hidden)
 
         for i, batch_token in enumerate(inputs):
 
             batch_embedding = self.embedding(batch_token)
 
             x = self.input_layer(batch_embedding)
-            x = self.dropout(x)
-            x = self.activation(x)
+            x = self.tanh(x)
 
             layers = zip(
-                self.recurrent_hidden,
-                self.recurrent_forget,
                 self.recurrent_reset,
+                self.recurrent_forget,
+                self.recurrent_hidden,
             )
 
-            for j, (recurrent, forget, reset) in enumerate(layers):
-
-                z = F.sigmoid(forget(torch.cat((x, hidden[j]), dim=1)))
-                r = F.sigmoid(reset(torch.cat((x, hidden[j]), dim=1)))
-                h = F.tanh(recurrent(torch.cat((x, hidden[j] * r), dim=1)))
-
-                x = (1 - z) * hidden[j] + z * h
+            for j, (reset_layer, forget_layer, hidden_layer) in enumerate(layers):
 
                 x = self.dropout(x)
 
+                cat = torch.cat((x, hidden[j]), dim=1)
+
+                r = self.sigmoid(reset_layer(cat))
+                z = self.sigmoid(forget_layer(cat))
+                h = self.tanh(hidden_layer(torch.cat((x, r * hidden[j]), dim=1)))
+
+                x = (1 - z) * hidden[j] + z * h
+
                 hidden[j] = x
 
-            logits[i] = self.output_layer(x)
+            x = self.dropout(x)
 
-        return logits.view(self.seq_len, self.batch_size, self.vocab_size), hidden
+            logits.append(self.output_layer(x).view((self.batch_size, self.vocab_size)))
+
+        return torch.stack(tuple(logits)), torch.stack(tuple(hidden))
 
     def generate(self, input, hidden, generated_seq_len):
         # TODO ========================
@@ -382,22 +392,28 @@ class GRU(nn.Module):  # Implement a stacked GRU RNN
             batch_embedding = self.embedding(feed)
 
             x = self.input_layer(batch_embedding)
-            x = self.activation(x)
+            x = self.tanh(x)
 
             layers = zip(
-                self.recurrent_hidden,
-                self.recurrent_forget,
                 self.recurrent_reset,
+                self.recurrent_forget,
+                self.recurrent_hidden,
             )
 
-            for i, (recurrent, forget, reset) in enumerate(layers):
-                z = F.sigmoid(forget(torch.cat((x, hidden[i]), dim=1)))
-                r = F.sigmoid(reset(torch.cat((x, hidden[i]), dim=1)))
-                h = F.sigmoid(recurrent(torch.cat((x, hidden[i] * r), dim=1)))
+            for j, (reset_layer, forget_layer, hidden_layer) in enumerate(layers):
+                x = self.dropout(x)
 
-                x = (1 - z) * hidden[i] + z * h
+                cat = torch.cat((x, hidden[j]), dim=1)
 
-                hidden[i] = x
+                r = self.sigmoid(reset_layer(cat))
+                z = self.sigmoid(forget_layer(cat))
+                h = self.tanh(hidden_layer(torch.cat((x, r * hidden[j]), dim=1)))
+
+                x = (1 - z) * hidden[j] + z * h
+
+                hidden[j] = x
+
+            x = self.dropout(x)
 
             logits = self.output_layer(x)
 
