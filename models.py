@@ -60,10 +60,11 @@ def masked_softmax(x, mask, offset=1e9, dim=None):
         x (torch.Tensor): The tensor on which the softmax operation will be performed.
         mask: The mask used.
         offset (float): A large value used for numerical stability.
+        dim (int): The dimension on which to apply the softmax.
     """
 
     if mask is not None:
-        mask = mask.type(torch.FloatTensor)
+        mask = mask.type(torch.FloatTensor).to(x.device)
         x_tilde = x * mask - offset * (1 - mask)
     else:
         x_tilde = x
@@ -347,7 +348,7 @@ class GRU(nn.Module):  # Implement a stacked GRU RNN
         logits = []
         hidden = list(hidden)
 
-        for i, batch_token in enumerate(inputs):
+        for batch_token in inputs:
 
             batch_embedding = self.embedding(batch_token)
 
@@ -552,7 +553,7 @@ class MultiHeadedAttention(nn.Module):
 
         batch_size, seq_len, _ = query.size()
 
-        attentions = torch.empty((self.n_heads, batch_size, seq_len, seq_len))
+        attentions = []
 
         iterator = enumerate(zip(self.attention_queries, self.attention_keys))
 
@@ -560,9 +561,11 @@ class MultiHeadedAttention(nn.Module):
 
             pre_soft = layer_query(query) @ layer_key(key).permute(0, 2, 1)
 
-            attentions[i] = masked_softmax(pre_soft / np.sqrt(self.d_k), mask, dim=2)
+            attentions.append(masked_softmax(pre_soft / np.sqrt(self.d_k), mask, dim=2))
 
         # attentions = attentions.permute(1, 0, 2, 3)
+
+        attentions = torch.stack(tuple(attentions))
 
         hidden = []
 
