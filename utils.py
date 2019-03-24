@@ -1,6 +1,8 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
+import torch
+
 
 def get_curves(folder):
     """
@@ -92,3 +94,8 @@ def plot_ppl(name, folder, save=True, log_scale=False, time=False):
         plot_time(curves['train_ppls'], curves['val_ppls'], times, name + '-time', save, log_scale)
     else:
         plot(curves['train_ppls'], curves['val_ppls'], name, save, log_scale)
+
+
+def load_weights(folder):
+    model = torch.load(folder + 'best_params.pt', map_location='cpu')
+    return model
