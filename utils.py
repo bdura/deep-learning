@@ -46,8 +46,13 @@ def plot(train, valid, name, save=True, log_scale=False):
 
     plt.yscale('log' if log_scale else 'linear')
 
+    if log_scale:
+        filename = 'output/{}-log-ppl.pdf'.format(name)
+    else:
+        filename = 'output/{}-ppl.pdf'.format(name)
+
     if save:
-        plt.savefig('output/{}-ppl.pdf'.format(name), bbox_inches='tight')
+        plt.savefig(filename, bbox_inches='tight')
 
 
 def plot_time(train, valid, times, name, save=True, log_scale=False):
@@ -67,8 +72,13 @@ def plot_time(train, valid, times, name, save=True, log_scale=False):
 
     plt.yscale('log' if log_scale else 'linear')
 
+    if log_scale:
+        filename = 'output/{}-log-ppl.pdf'.format(name)
+    else:
+        filename = 'output/{}-ppl.pdf'.format(name)
+
     if save:
-        plt.savefig('output/{}-ppl.pdf'.format(name), bbox_inches='tight')
+        plt.savefig(filename, bbox_inches='tight')
 
 
 def plot_ppl(name, folder, save=True, log_scale=False, time=False):
