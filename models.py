@@ -254,9 +254,9 @@ class RNN(nn.Module):  # Implement a stacked vanilla RNN with Tanh nonlinearitie
 
         feed = input
 
-        sentence = []
+        sentence = [feed]
 
-        for _ in range(generated_seq_len):
+        for _ in range(generated_seq_len - 1):
 
             batch_embedding = self.embedding(feed)
             x = self.input_layer(batch_embedding)
@@ -417,7 +417,7 @@ class GRU(nn.Module):  # Implement a stacked GRU RNN
 
         sentence = [feed]
 
-        for _ in range(generated_seq_len):
+        for _ in range(generated_seq_len - 1):
 
             batch_embedding = self.embedding(feed)
 
