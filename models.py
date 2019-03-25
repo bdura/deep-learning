@@ -127,6 +127,8 @@ class RNN(nn.Module):  # Implement a stacked vanilla RNN with Tanh nonlinearitie
 
         self.output_layer = nn.Linear(hidden_size, vocab_size)
 
+        self.last_hidden = None
+
     def init_weights(self):
 
         # TODO ========================
@@ -224,6 +226,8 @@ class RNN(nn.Module):  # Implement a stacked vanilla RNN with Tanh nonlinearitie
 
             logits.append(self.output_layer(x).view((self.batch_size, self.vocab_size)))
 
+        self.last_hidden = torch.stack(tuple(hidden))
+
         return torch.stack(tuple(logits)), torch.stack(tuple(hidden))
 
     def generate(self, input, hidden, generated_seq_len):
@@ -254,9 +258,9 @@ class RNN(nn.Module):  # Implement a stacked vanilla RNN with Tanh nonlinearitie
 
         feed = input
 
-        sentence = [feed]
+        sentence = []
 
-        for _ in range(generated_seq_len - 1):
+        for _ in range(generated_seq_len):
 
             batch_embedding = self.embedding(feed)
             x = self.input_layer(batch_embedding)
@@ -326,6 +330,8 @@ class GRU(nn.Module):  # Implement a stacked GRU RNN
         self.recurrent_hidden = clones(hidden, num_layers)
 
         self.output_layer = nn.Linear(hidden_size, vocab_size)
+
+        self.last_hidden = None
 
     def init_weights_uniform(self):
 
@@ -405,6 +411,8 @@ class GRU(nn.Module):  # Implement a stacked GRU RNN
 
             logits.append(self.output_layer(x).view((self.batch_size, self.vocab_size)))
 
+        self.last_hidden = torch.stack(tuple(hidden))
+
         if self.keep_hiddens:
             self.hiddens = tuple(self.hiddens)
 
@@ -415,9 +423,9 @@ class GRU(nn.Module):  # Implement a stacked GRU RNN
 
         feed = input
 
-        sentence = [feed]
+        sentence = []
 
-        for _ in range(generated_seq_len - 1):
+        for _ in range(generated_seq_len):
 
             batch_embedding = self.embedding(feed)
 

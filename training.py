@@ -237,9 +237,7 @@ def get_distribution(data, batch_size, seq_len):
     return first_tokens
 
 
-def generate_sequence(model, i2w, tokens, sequence_length=35):
-
-    hidden = model.init_hidden()
+def generate_sequence(model, hidden, i2w, tokens, sequence_length=35):
 
     init = np.random.choice(tokens, size=model.batch_size)
 
