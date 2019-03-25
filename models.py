@@ -10,8 +10,7 @@ import math
 import copy
 import time
 
-from itertools import chain
-
+from itertools import chain, product
 
 import matplotlib.pyplot as plt
 
@@ -111,6 +110,9 @@ class RNN(nn.Module):  # Implement a stacked vanilla RNN with Tanh nonlinearitie
         self.num_layers = num_layers
         self.dp_keep_prob = dp_keep_prob
 
+        self.keep_hiddens = False
+        self.hiddens = {(t, i): None for i, t in product(range(seq_len), range(num_layers))}
+
         self.activation = nn.Tanh()
 
         self.embedding = nn.Embedding(vocab_size, emb_size)
@@ -193,6 +195,7 @@ class RNN(nn.Module):  # Implement a stacked vanilla RNN with Tanh nonlinearitie
                   if you are curious.
                         shape: (num_layers, batch_size, hidden_size)
         """
+        self.hiddens = []
 
         logits = []
         hidden = list(hidden)
@@ -208,7 +211,14 @@ class RNN(nn.Module):  # Implement a stacked vanilla RNN with Tanh nonlinearitie
 
                 x = layer(torch.cat((self.dropout(x), hidden[j]), dim=1))
                 x = self.activation(x)
+
+                if self.keep_hiddens:
+                    x.retain_grad()
+
                 hidden[j] = x
+
+            if self.keep_hiddens:
+                self.hiddens.append(tuple(hidden))
 
             x = self.dropout(x)
 
@@ -242,28 +252,32 @@ class RNN(nn.Module):  # Implement a stacked vanilla RNN with Tanh nonlinearitie
                         shape: (generated_seq_len, batch_size)
         """
 
-        feed = self.embedding(input)
+        feed = input
 
-        sentence = [feed]
+        sentence = []
 
         for _ in range(generated_seq_len):
 
             batch_embedding = self.embedding(feed)
-
             x = self.input_layer(batch_embedding)
             x = self.activation(x)
 
             for i, layer in enumerate(self.recurrent_layers):
-                x = self.dropout(x)
+
                 x = layer(torch.cat((x, hidden[i]), dim=1))
                 x = self.activation(x)
                 hidden[i] = x
 
             x = self.dropout(x)
 
-            logits = self.output_layer(x)
+            probs = F.softmax(self.output_layer(x), dim=1)
 
-            feed = np.random.choice(self.vocab_size, p=F.softmax(logits))
+            feed = np.array([
+                np.random.choice(self.vocab_size, p=np.array(prob))
+                for prob in probs
+            ])
+
+            feed = torch.tensor(feed, dtype=torch.long)
 
             sentence.append(feed)
 
@@ -289,6 +303,9 @@ class GRU(nn.Module):  # Implement a stacked GRU RNN
         self.vocab_size = vocab_size
         self.num_layers = num_layers
         self.dp_keep_prob = dp_keep_prob
+
+        self.keep_hiddens = False
+        self.hiddens = []
 
         self.tanh = nn.Tanh()
         self.sigmoid = nn.Sigmoid()
@@ -345,6 +362,8 @@ class GRU(nn.Module):  # Implement a stacked GRU RNN
     def forward(self, inputs, hidden):
         # TODO ========================
 
+        self.hiddens = []
+
         logits = []
         hidden = list(hidden)
 
@@ -373,18 +392,27 @@ class GRU(nn.Module):  # Implement a stacked GRU RNN
 
                 x = (1 - z) * hidden[j] + z * h
 
+                if self.keep_hiddens:
+                    x.retain_grad()
+
                 hidden[j] = x
+
+            if self.keep_hiddens:
+                self.hiddens.append(tuple(hidden))
 
             x = self.dropout(x)
 
             logits.append(self.output_layer(x).view((self.batch_size, self.vocab_size)))
+
+        if self.keep_hiddens:
+            self.hiddens = tuple(self.hiddens)
 
         return torch.stack(tuple(logits)), torch.stack(tuple(hidden))
 
     def generate(self, input, hidden, generated_seq_len):
         # TODO ========================
 
-        feed = self.embedding(input)
+        feed = input
 
         sentence = [feed]
 
@@ -416,9 +444,14 @@ class GRU(nn.Module):  # Implement a stacked GRU RNN
 
             x = self.dropout(x)
 
-            logits = self.output_layer(x)
+            probs = F.softmax(self.output_layer(x), dim=1)
 
-            feed = np.random.choice(self.vocab_size, p=F.softmax(logits))
+            feed = np.array([
+                np.random.choice(self.vocab_size, p=np.array(prob))
+                for prob in probs
+            ])
+
+            feed = torch.tensor(feed, dtype=torch.long)
 
             sentence.append(feed)
 
