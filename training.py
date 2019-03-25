@@ -224,9 +224,24 @@ def run_epoch(model, data, optimizer=None, is_train=False, lr=1.0,
     return np.exp(costs / iters), losses, np.stack(per_t_losses)
 
 
-def generate_sequence(model, w2i, i2w, sequence_length=35):
+def get_distribution(data, batch_size, seq_len):
+
+    first_tokens = []
+
+    for x, y in ptb_iterator(data, batch_size, seq_len):
+        inputs = x.astype(np.int64).transpose(0, 1)
+        first_tokens.append(inputs[0])
+
+    first_tokens = np.concatenate(first_tokens)
+
+    return first_tokens
+
+
+def generate_sequence(model, i2w, tokens, sequence_length=35):
 
     hidden = model.init_hidden()
+
+    init = np.random.choice(tokens, size=model.batch_size)
 
     sequences = []
 
@@ -234,9 +249,10 @@ def generate_sequence(model, w2i, i2w, sequence_length=35):
 
     with torch.no_grad():
 
-        init = torch.tensor([w2i['<eos>']] * model.batch_size, dtype=torch.long)
+        init = torch.tensor(init, dtype=torch.long)
 
         for tokens in model.generate(init, hidden, sequence_length):
+
             tokens = np.array(tokens)
             words = [i2w[token] for token in tokens]
 
@@ -309,9 +325,11 @@ def main_loop(num_epochs, optimizer, model, train_data, valid_data,
 
 if __name__ == '__main__':
 
-    rnn = models.RNN(batch_size=20, seq_len=35, hidden_size=1500, num_layers=2,
+    gru = models.GRU(batch_size=20, seq_len=35, hidden_size=1500, num_layers=2,
                      vocab_size=10000, dp_keep_prob=.35, emb_size=200)
 
     valid_data, word_to_id, id_2_word = ptb_valid_data(data_path='data/')
 
-    generate_sequence(rnn, word_to_id, id_2_word, sequence_length=35, n=20)
+    tokens = get_distribution(valid_data, 20, 35)
+
+    generate_sequence(gru, word_to_id, id_2_word, tokens, sequence_length=35)

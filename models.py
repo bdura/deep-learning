@@ -281,7 +281,8 @@ class RNN(nn.Module):  # Implement a stacked vanilla RNN with Tanh nonlinearitie
 
             sentence.append(feed)
 
-        return sentence
+        # We return a (batch_size, seq_len) tensor representing the sentences
+        return torch.stack(tuple(sentence)).transpose(0, 1)
 
 
 # Problem 2
@@ -455,7 +456,8 @@ class GRU(nn.Module):  # Implement a stacked GRU RNN
 
             sentence.append(feed)
 
-        return sentence
+        # We return a (batch_size, seq_len) tensor representing the sentences
+        return torch.stack(tuple(sentence)).transpose(0, 1)
 
 
 # Problem 3
